@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 R = 8.314
 eps = 1e-12
 
-
 # =========================
 # 1. 读取 Excel 数据
 # =========================
@@ -26,7 +25,12 @@ def load_data(sheet_name):
     fuga = df[['fCO2', 'fH2', 'fCH3OH', 'fH2O', 'fCO']].to_numpy(dtype=float)
     rMeOH = df['rMeOH'].to_numpy(dtype=float)
     rCO = df['rCO'].to_numpy(dtype=float)
+
+    # 如果 Excel 里的 T 已经是 K，就保留这一行
     temperature = df['T'].to_numpy(dtype=float)
+
+    # 如果 Excel 里的 T 是 ℃，改成下面这一行，并删掉上一行
+    # temperature = df['T'].to_numpy(dtype=float) + 273.15
 
     print(f"Sheet = {sheet_name}，总数据点数: {len(df)}")
     return df, fuga, rMeOH, rCO, temperature
@@ -57,11 +61,14 @@ def calculate_equilibrium_constants(T):
 def calc_predictions(par, fuga, temperature):
     """
     par 顺序：
-    A1, E1, n1_A, n1_B, n1_C, n1_D,
-    A2, E2, n2_A, n2_B, n2_D, n2_E
+    A1_star, E1, n1_A, n1_B, n1_C, n1_D,
+    A2_star, E2, n2_A, n2_B, n2_D, n2_E
     """
-    A1, E1, n1_A, n1_B, n1_C, n1_D, \
-    A2, E2, n2_A, n2_B, n2_D, n2_E = par
+    A1_star, E1, n1_A, n1_B, n1_C, n1_D, \
+    A2_star, E2, n2_A, n2_B, n2_D, n2_E = par
+
+    # 每个 sheet 内所有温度的平均值
+    T_av = np.mean(temperature)
 
     fA = fuga[:, 0]   # CO2
     fB = fuga[:, 1]   # H2
@@ -75,8 +82,9 @@ def calc_predictions(par, fuga, temperature):
     fD_safe = np.maximum(fD, eps)
     fE_safe = np.maximum(fE, eps)
 
-    k1 = A1 * np.exp(-E1 / (R * temperature))
-    k2 = A2 * np.exp(-E2 / (R * temperature))
+    # Arrhenius reformulation with T_av
+    k1 = A1_star * np.exp(-(E1 / R) * (1 / temperature - 1 / T_av))
+    k2 = A2_star * np.exp(-(E2 / R) * (1 / temperature - 1 / T_av))
 
     K_f1, K_f2 = calculate_equilibrium_constants(temperature)
     K_f1_safe = np.maximum(K_f1, eps)
@@ -146,7 +154,6 @@ def calc_mre(y_exp, y_pred):
 def fit_one_sheet(sheet_name):
     df, fuga, rMeOH, rCO, temperature = load_data(sheet_name)
 
-    # 这里 n2_B 恢复为正常待拟合参数
     bounds = [
         (1e-5, 1e3), (-15000, 15000), (0, 5), (0, 5), (0, 5), (0, 5),
         (1e-5, 1e3), (-15000, 15000), (0, 5), (-2, 2), (0, 5), (0, 5)
@@ -206,8 +213,8 @@ def fit_one_sheet(sheet_name):
 
     # 保存参数
     param_names = [
-        'A1', 'E1', 'n1_A', 'n1_B', 'n1_C', 'n1_D',
-        'A2', 'E2', 'n2_A', 'n2_B', 'n2_D', 'n2_E'
+        'A1_star', 'E1', 'n1_A', 'n1_B', 'n1_C', 'n1_D',
+        'A2_star', 'E2', 'n2_A', 'n2_B', 'n2_D', 'n2_E'
     ]
 
     param_df = pd.DataFrame({
@@ -255,8 +262,8 @@ def main():
     all_df = []
 
     param_names = [
-        'A1', 'E1', 'n1_A', 'n1_B', 'n1_C', 'n1_D',
-        'A2', 'E2', 'n2_A', 'n2_B', 'n2_D', 'n2_E'
+        'A1_star', 'E1', 'n1_A', 'n1_B', 'n1_C', 'n1_D',
+        'A2_star', 'E2', 'n2_A', 'n2_B', 'n2_D', 'n2_E'
     ]
 
     for sheet_name in sheet_list:
