@@ -1,1 +1,1 @@
-The new project.
+The new project
