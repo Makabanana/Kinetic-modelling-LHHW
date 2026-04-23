@@ -4,43 +4,30 @@ from scipy.optimize import differential_evolution
 from multiprocessing import freeze_support
 import matplotlib.pyplot as plt
 
-# 已验证氢碳比无关，选择因此后续分析可以选择所有的氢碳比数据
-# 该程序选择温度区间220-260，调节不同的GHSV看拟合
-# 模型：原始 power law
-# 改动：A1_star 和 A2_star 改成 log-space 拟合
-
-# =========================
-# 0. 常数
-# =========================
 R = 8.314
 eps = 1e-12
 
-# =========================
-# 1. 读取 Excel 数据
-# =========================
 def load_data(sheet_name):
-    # 第一行是列名，第二行是单位/注释，所以跳过第二行
     df = pd.read_excel('data.xlsx', sheet_name=sheet_name, header=0, skiprows=[1])
     df.columns = df.columns.str.strip()
 
-    # 提取数据
     fuga = df[['fCO2', 'fH2', 'fCH3OH', 'fH2O', 'fCO']].to_numpy(dtype=float)
     rMeOH = df['rMeOH'].to_numpy(dtype=float)
     rCO = df['rCO'].to_numpy(dtype=float)
-
-    # 如果 Excel 里的 T 已经是 K，就保留这一行
     temperature = df['T'].to_numpy(dtype=float)
-
-    # 如果 Excel 里的 T 是 ℃，改成下面这一行，并删掉上一行
-    # temperature = df['T'].to_numpy(dtype=float) + 273.15
 
     print(f"Sheet = {sheet_name}，总数据点数: {len(df)}")
     return df, fuga, rMeOH, rCO, temperature
 
 
-# =========================
-# 2. 平衡常数函数
-# =========================
+def maybe_convert_pa_to_mpa(fuga):
+    # 如果 fugacity 数值明显是 Pa 量级，则自动转成 MPa
+    if np.nanmax(fuga) > 1e3:
+        print("检测到 fugacity 量级较大，按 Pa -> MPa 自动转换")
+        return fuga / 1e6
+    return fuga
+
+
 def calculate_equilibrium_constants(T):
     K_f1 = np.exp(
         1.6654 + 4553.34 / T - 2.72613 * np.log(T)
@@ -57,38 +44,27 @@ def calculate_equilibrium_constants(T):
     return K_f1, K_f2
 
 
-# =========================
-# 3. 速率计算函数
-# =========================
 def calc_predictions(par, fuga, temperature):
     """
     par 顺序：
-    log10_A1_star, E1, n1_A, n1_B, n1_C, n1_D,
-    log10_A2_star, E2, n2_A, n2_B, n2_D, n2_E
+    A1_star, E1, A2_star, E2, KCO2
+    先固定 KCO = 1.0, KH2O_H2 = 1.0
     """
-    log10_A1_star, E1, n1_A, n1_B, n1_C, n1_D, \
-    log10_A2_star, E2, n2_A, n2_B, n2_D, n2_E = par
+    A1_star, E1, A2_star, E2, KCO2 = par
 
-    # log-space -> real space
-    A1_star = 10 ** log10_A1_star
-    A2_star = 10 ** log10_A2_star
+    KCO = 1.0
+    KH2O_H2 = 1.0
 
-    # 每个 sheet 内所有温度的平均值
+    fuga = maybe_convert_pa_to_mpa(fuga)
+
     T_av = np.mean(temperature)
 
-    fA = fuga[:, 0]   # CO2
-    fB = fuga[:, 1]   # H2
-    fC = fuga[:, 2]   # CH3OH
-    fD = fuga[:, 3]   # H2O
-    fE = fuga[:, 4]   # CO
+    fCO2 = np.maximum(fuga[:, 0], eps)
+    fH2 = np.maximum(fuga[:, 1], eps)
+    fCH3OH = np.maximum(fuga[:, 2], eps)
+    fH2O = np.maximum(fuga[:, 3], eps)
+    fCO = np.maximum(fuga[:, 4], eps)
 
-    fA_safe = np.maximum(fA, eps)
-    fB_safe = np.maximum(fB, eps)
-    fC_safe = np.maximum(fC, eps)
-    fD_safe = np.maximum(fD, eps)
-    fE_safe = np.maximum(fE, eps)
-
-    # Arrhenius reformulation with T_av
     k1 = A1_star * np.exp(-(E1 / R) * (1 / temperature - 1 / T_av))
     k2 = A2_star * np.exp(-(E2 / R) * (1 / temperature - 1 / T_av))
 
@@ -96,30 +72,32 @@ def calc_predictions(par, fuga, temperature):
     K_f1_safe = np.maximum(K_f1, eps)
     K_f2_safe = np.maximum(K_f2, eps)
 
-    # R1: CO2 + 3H2 -> CH3OH + H2O
-    r1 = (
-        k1 * (fA_safe ** n1_A) * (fB_safe ** n1_B)
-        - (k1 / K_f1_safe) * (fC_safe ** n1_C) * (fD_safe ** n1_D)
+    den_s1 = 1.0 + KCO * fCO + KCO2 * fCO2
+    den_s2 = np.sqrt(fH2) + KH2O_H2 * fH2O
+    den = np.maximum(den_s1 * den_s2, eps)
+
+    drive1 = (
+        fCO2 * (fH2 ** 1.5)
+        - (fCH3OH * fH2O) / np.maximum((fH2 ** 1.5) * K_f1_safe, eps)
     )
 
-    # R2: CO2 + H2 -> CO + H2O
-    r2 = (
-        k2 * (fA_safe ** n2_A) * (fB_safe ** n2_B)
-        - (k2 / K_f2_safe) * (fD_safe ** n2_D) * (fE_safe ** n2_E)
+    drive2 = (
+        fCO2 * fH2
+        - (fCO * fH2O) / K_f2_safe
     )
+
+    r1 = k1 * KCO2 * drive1 / den
+    r2 = k2 * KCO2 * drive2 / den
 
     rate_meoh_pred = r1
     rate_co_pred = r2
 
-    return rate_meoh_pred, rate_co_pred, r1, r2, k1, k2
+    return rate_meoh_pred, rate_co_pred, r1, r2, k1, k2, den
 
 
-# =========================
-# 4. 目标函数
-# =========================
 def objective(par, fuga, temperature, rMeOH_exp, rCO_exp):
     try:
-        rate_meoh_pred, rate_co_pred, _, _, _, _ = calc_predictions(par, fuga, temperature)
+        rate_meoh_pred, rate_co_pred, _, _, _, _, _ = calc_predictions(par, fuga, temperature)
 
         denom_meoh = np.maximum(np.abs(rMeOH_exp), 1e-6)
         denom_co = np.maximum(np.abs(rCO_exp), 1e-6)
@@ -138,9 +116,6 @@ def objective(par, fuga, temperature, rMeOH_exp, rCO_exp):
         return 1e30
 
 
-# =========================
-# 5. 评价指标
-# =========================
 def calc_r2(y_exp, y_pred):
     ss_res = np.sum((y_exp - y_pred) ** 2)
     ss_tot = np.sum((y_exp - np.mean(y_exp)) ** 2)
@@ -154,25 +129,15 @@ def calc_mre(y_exp, y_pred):
     return np.mean(np.abs((y_pred - y_exp) / denom)) * 100
 
 
-# =========================
-# 6. 单个 sheet 拟合
-# =========================
 def fit_one_sheet(sheet_name):
     df, fuga, rMeOH, rCO, temperature = load_data(sheet_name)
 
     bounds = [
-        (-5, 3),           # log10_A1_star
-        (-15000, 15000),   # E1
-        (0, 5),            # n1_A
-        (0, 5),            # n1_B
-        (0, 5),            # n1_C
-        (0, 5),            # n1_D
-        (-5, 3),           # log10_A2_star
-        (-15000, 15000),   # E2
-        (0, 5),            # n2_A
-        (-2, 2),           # n2_B
-        (0, 5),            # n2_D
-        (0, 5)             # n2_E
+        (1e-8, 1e3),      # A1_star
+        (-15000, 15000),  # E1
+        (1e-8, 1e3),      # A2_star
+        (-15000, 15000),  # E2
+        (1e-8, 1e3)       # KCO2
     ]
 
     result = differential_evolution(
@@ -197,13 +162,9 @@ def fit_one_sheet(sheet_name):
 
     par_opt = result.x
 
-    log10_A1_star, E1, n1_A, n1_B, n1_C, n1_D, \
-    log10_A2_star, E2, n2_A, n2_B, n2_D, n2_E = par_opt
-
-    A1_star = 10 ** log10_A1_star
-    A2_star = 10 ** log10_A2_star
-
-    rate_meoh_pred, rate_co_pred, r1_pred, r2_pred, k1, k2 = calc_predictions(par_opt, fuga, temperature)
+    rate_meoh_pred, rate_co_pred, r1_pred, r2_pred, k1, k2, den = calc_predictions(
+        par_opt, fuga, temperature
+    )
 
     r2_meoh = calc_r2(rMeOH, rate_meoh_pred)
     r2_co = calc_r2(rCO, rate_co_pred)
@@ -221,7 +182,6 @@ def fit_one_sheet(sheet_name):
         and (mre_co < 20)
     )
 
-    # 保存逐点预测结果
     result_df = df.copy()
     result_df['rMeOH_pred'] = rate_meoh_pred
     result_df['rCO_pred'] = rate_co_pred
@@ -229,23 +189,16 @@ def fit_one_sheet(sheet_name):
     result_df['r2_pred'] = r2_pred
     result_df['k1_T'] = k1
     result_df['k2_T'] = k2
+    result_df['den_common'] = den
     result_df['rel_error_rMeOH_%'] = np.abs((rate_meoh_pred - rMeOH) / np.maximum(np.abs(rMeOH), 1e-12)) * 100
     result_df['rel_error_rCO_%'] = np.abs((rate_co_pred - rCO) / np.maximum(np.abs(rCO), 1e-12)) * 100
     result_df['sheet'] = sheet_name
     result_df.to_excel(f'fit_results_{sheet_name}.xlsx', index=False)
 
-    # 保存参数：既保存 log-space，也保存真实 A
+    param_names = ['A1_star', 'E1', 'A2_star', 'E2', 'KCO2']
     param_df = pd.DataFrame({
-        'param_name': [
-            'log10_A1_star', 'E1', 'n1_A', 'n1_B', 'n1_C', 'n1_D',
-            'log10_A2_star', 'E2', 'n2_A', 'n2_B', 'n2_D', 'n2_E',
-            'A1_star', 'A2_star'
-        ],
-        'value': [
-            log10_A1_star, E1, n1_A, n1_B, n1_C, n1_D,
-            log10_A2_star, E2, n2_A, n2_B, n2_D, n2_E,
-            A1_star, A2_star
-        ]
+        'param_name': param_names,
+        'value': par_opt
     })
     param_df.to_excel(f'fitted_parameters_{sheet_name}.xlsx', index=False)
 
@@ -277,9 +230,6 @@ def fit_one_sheet(sheet_name):
     }
 
 
-# =========================
-# 7. 主程序
-# =========================
 def main():
     sheet_list = ['1']
 
@@ -287,10 +237,7 @@ def main():
     all_params = []
     all_df = []
 
-    param_names = [
-        'log10_A1_star', 'E1', 'n1_A', 'n1_B', 'n1_C', 'n1_D',
-        'log10_A2_star', 'E2', 'n2_A', 'n2_B', 'n2_D', 'n2_E'
-    ]
+    param_names = ['A1_star', 'E1', 'A2_star', 'E2', 'KCO2']
 
     for sheet_name in sheet_list:
         print("\n" + "=" * 60)
@@ -335,38 +282,26 @@ def main():
     print("  comparison_summary.xlsx")
     print("  comparison_parameters.xlsx")
 
-    # Parity plot - MeOH
     plt.figure(figsize=(6, 6))
-    for cond in df_all['sheet'].unique():
-        df_plot = df_all[df_all['sheet'] == cond]
-        plt.scatter(df_plot['rMeOH'], df_plot['rMeOH_pred'], label=f'{cond}-MeOH', alpha=0.7)
-
+    plt.scatter(df_all['rMeOH'], df_all['rMeOH_pred'], alpha=0.7)
     min_val = min(df_all['rMeOH'].min(), df_all['rMeOH_pred'].min())
     max_val = max(df_all['rMeOH'].max(), df_all['rMeOH_pred'].max())
     plt.plot([min_val, max_val], [min_val, max_val], 'k--')
-
     plt.xlabel('Experimental MeOH')
     plt.ylabel('Predicted MeOH')
     plt.title('Parity Plot - MeOH')
-    plt.legend()
     plt.grid()
     plt.savefig('parity_plot_MeOH.png', dpi=300)
     plt.show()
 
-    # Parity plot - CO
     plt.figure(figsize=(6, 6))
-    for cond in df_all['sheet'].unique():
-        df_plot = df_all[df_all['sheet'] == cond]
-        plt.scatter(df_plot['rCO'], df_plot['rCO_pred'], label=f'{cond}-CO', alpha=0.7)
-
+    plt.scatter(df_all['rCO'], df_all['rCO_pred'], alpha=0.7)
     min_val = min(df_all['rCO'].min(), df_all['rCO_pred'].min())
     max_val = max(df_all['rCO'].max(), df_all['rCO_pred'].max())
     plt.plot([min_val, max_val], [min_val, max_val], 'k--')
-
     plt.xlabel('Experimental CO')
     plt.ylabel('Predicted CO')
     plt.title('Parity Plot - CO')
-    plt.legend()
     plt.grid()
     plt.savefig('parity_plot_CO.png', dpi=300)
     plt.show()
