@@ -1,4 +1,3 @@
-#全部数据参与拟合，对比原始的powerlaw和加入(1-beta)的两种形式
 import os
 import re
 import warnings
@@ -17,7 +16,7 @@ R = 8.314
 eps = 1e-12
 
 EXCEL_PATH = "full data.xlsx"
-SKIPROWS = [1]   # 空出单位行再阅读
+SKIPROWS = [1]   # 如果你的 Excel 第二行是单位行，就保留；如果不是，改成 None
 
 OUTPUT_DIR = "fit_fixed_GHSV_P_outputs"
 PLOT_DIR = os.path.join(OUTPUT_DIR, "plots")
@@ -36,8 +35,8 @@ SAVE_PLOTS = True
 # =========================
 DE_CONFIG = {
     "strategy": "best1bin",
-    "maxiter": 3000,          # 现在调大
-    "popsize": 25,            # 现在调大
+    "maxiter": 3000,          # 原来 500，现在调大
+    "popsize": 25,            # 原来 15，现在调大
     "tol": 1e-7,              # 更严格
     "mutation": (0.5, 1.2),
     "recombination": 0.7,

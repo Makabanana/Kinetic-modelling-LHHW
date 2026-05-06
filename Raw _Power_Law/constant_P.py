@@ -1,4 +1,3 @@
-#P=5MPa下，不同GHSV的结果，加上逆项
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,7 +5,7 @@ from scipy.optimize import differential_evolution
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-EXCEL_FILE = BASE_DIR / "full data.xlsx"
+EXCEL_FILE = BASE_DIR / "12000GHSV.xlsx"
 OUT_DIR = BASE_DIR / "ghsv_fit_results_Tave_p5MPa_with_global"
 OUT_DIR.mkdir(exist_ok=True)
 
@@ -154,7 +153,7 @@ def fit_one_cluster(dfc, ghsv_label):
         (-20, 10),       # ln_k2_ref
         (0, 150000),     # E2
         (0, 5),          # a2
-        (0, 5),          # b2
+        (-3, 5),          # b2
         (0, 5),          # d2
         (0, 5)           # e2
     ]

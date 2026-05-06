@@ -6,7 +6,7 @@ from scipy.optimize import differential_evolution
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-EXCEL_FILE = BASE_DIR / "full data.xlsx"
+EXCEL_FILE = BASE_DIR / "12000GHSV.xlsx"
 OUT_DIR = BASE_DIR / "ghsv_fit_results_multiP_with_global"
 OUT_DIR.mkdir(exist_ok=True)
 
