@@ -161,12 +161,12 @@ def unpack_params(x):
 
 
 # ============================================================
-# 5. Two-reaction LHHW kinetic model
+# 5. Two-reaction AAA_LHHW kinetic model
 # ============================================================
 
 def lhhw_rate_model(x, df):
     """
-    Predict methanol and CO formation rates with the current LHHW model.
+    Predict methanol and CO formation rates with the current AAA_LHHW model.
 
     r1 represents CO2 hydrogenation to CH3OH.
     r2 represents the reverse water-gas shift route to CO.
@@ -278,7 +278,7 @@ def objective_for_de(x, df):
 
 def fit_lhhw_two_reactions(df):
     """
-    Fit the current LHHW model in two stages.
+    Fit the current AAA_LHHW model in two stages.
 
     Differential evolution gives a reproducible global search starting point,
     and least_squares performs the final local refinement.
@@ -494,7 +494,7 @@ def save_outputs(pred_df, metrics, params_report, result, de_result):
 # ============================================================
 
 def main():
-    """Run the current two-reaction LHHW baseline from data to saved outputs."""
+    """Run the current two-reaction AAA_LHHW baseline from data to saved outputs."""
 
     df = load_data(DATA_PATH, sheet_name=0)
     print(f"Loaded data points: {len(df)}")

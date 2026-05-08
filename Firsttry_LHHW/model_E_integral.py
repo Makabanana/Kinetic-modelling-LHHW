@@ -52,12 +52,12 @@ baseline = load_baseline_module()
 
 
 # ============================================================
-# 2. Same local two-reaction LHHW expression
+# 2. Same local two-reaction AAA_LHHW expression
 # ============================================================
 
 def lhhw_rates_from_fugacity(x, T, T_ref, fCO2, fH2, fCH3OH, fH2O, fCO):
     """
-    Evaluate the current two-reaction LHHW expression at local PFR conditions.
+    Evaluate the current two-reaction AAA_LHHW expression at local PFR conditions.
 
     This function keeps Kf1, Kf2, the adsorption denominator, and the two
     driving-force expressions unchanged. The difference from direct-rate
@@ -444,7 +444,7 @@ def save_model_E_outputs(pred_df, metrics, params_report, result, initial_object
 # ============================================================
 
 def main():
-    """Fit and save the integral PFR version of the current LHHW model."""
+    """Fit and save the integral PFR version of the current AAA_LHHW model."""
 
     df = baseline.load_data(DATA_PATH, sheet_name=0)
 
